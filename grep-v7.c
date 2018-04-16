@@ -9,6 +9,13 @@
  *		2 - some error
  */
 
+/*
+TODO:
+	add '+' support for regex
+	update man page
+
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -28,7 +35,7 @@
 
 #define	LBSIZE	16384	//max size of a line
 #define	ESIZE	8192	//max size of a regex expression
-#define	NBRA	9		//max number of grouping back refernces
+#define	NBRA	9	//max number of grouping back refernces
 
 char	expbuf[ESIZE];		//contains the processed regex
 long	lnum;
