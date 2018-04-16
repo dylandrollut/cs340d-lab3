@@ -90,7 +90,7 @@ int succeed(char *f){
 	if (nfile > 1 && hflag)
 		printf("%s:", f);
 	if (bflag)
-		printf("%ld:", (ftell(stdin)-1)/LBSIZE);
+		printf("%ld:", (ftell(stdin)-1)/DEV_BSIZE);
 	if (nflag)
 		printf("%ld:", lnum);
 	printf("%s\n", linebuf);
