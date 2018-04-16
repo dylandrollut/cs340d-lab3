@@ -26,8 +26,8 @@
 
 #define	STAR	01
 
-#define	LBSIZE	512
-#define	ESIZE	256
+#define	LBSIZE	16384
+#define	ESIZE	8192
 #define	NBRA	9
 
 char	expbuf[ESIZE];
@@ -216,6 +216,8 @@ int execute(char *file){
 	register char *p1, *p2;
 	register char c;
 
+	int linesize;
+
 	if (file) {
 		if (freopen(file, "r", stdin) == NULL)
 			errexit("grep: can't open %s\n", file);
@@ -223,6 +225,7 @@ int execute(char *file){
 	lnum = 0;
 	tln = 0;
 	for (;;) {
+		linesize = 0;
 		lnum++;
 		p1 = linebuf;
 		while ((c = getchar()) != '\n') {
@@ -235,10 +238,13 @@ int execute(char *file){
 				return 0;
 			}
 			*p1++ = c;
+			linesize++;
 			if (p1 >= &linebuf[LBSIZE-1])
 				break;
 		}
 		*p1++ = '\0';
+		linesize++;
+
 		p1 = linebuf;
 		p2 = expbuf;
 		if (circf) {
@@ -263,12 +269,20 @@ int execute(char *file){
 				goto found;
 		} while (*p1++);
 	nfound:
-		if (vflag)
+		if (vflag){
+			if(linesize > 512){
+				printf("grep: input line larger than 512 bytes. May miss potential matches.\n");
+			}
 			succeed(file);
+		}
 		continue;
 	found:
-		if (vflag==0)
+		if (vflag==0){
+			if(linesize > 512){
+				printf("grep: input line larger than 512 bytes. May miss potential matches.\n");
+			}
 			succeed(file);
+		}
 	}
 }
 
@@ -283,6 +297,7 @@ int compile(char *astr){
 	int closed;
 	char numbra;
 	char neg;
+	int warning = 1;
 
 	ep = expbuf;
 	sp = astr;
