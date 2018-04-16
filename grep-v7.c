@@ -14,26 +14,26 @@
 #include <ctype.h>
 #include <sys/param.h>
 
-#define	CBRA	1
-#define	CCHR	2
-#define	CDOT	4
-#define	CCL	6
-#define	NCCL	8
-#define	CDOL	10
-#define	CEOF	11
-#define	CKET	12
-#define	CBACK	18
+#define	CBRA	1	//signals the start of a grouping in the expression
+#define	CCHR	2	//signals a regular, non-special char in the expression
+#define	CDOT	4	//stands for any character in the expression
+#define	CCL	6	//signals an open square bracket in the expression
+#define	NCCL	8	//not used anywhere else in the code
+#define	CDOL	10	//stands for the special character '$'
+#define	CEOF	11	//signals the end of the expression
+#define	CKET	12	//signals the end of a grouping in the expression
+#define	CBACK	18	//signals the reference of a previous grouping
 
-#define	STAR	01
+#define	STAR	01	//stands for the special character '*'
 
-#define	LBSIZE	16384
-#define	ESIZE	8192
-#define	NBRA	9
+#define	LBSIZE	16384	//max size of a line
+#define	ESIZE	8192	//max size of a regex expression
+#define	NBRA	9		//max number of grouping back refernces
 
-char	expbuf[ESIZE];
+char	expbuf[ESIZE];		//contains the processed regex
 long	lnum;
-char	linebuf[LBSIZE+1];
-char	ybuf[ESIZE];
+char	linebuf[LBSIZE+1];	//contains the current line being parsed
+char	ybuf[ESIZE];		//contains the modified regex with all lowercase letters also matching uppercase letters
 int	bflag;
 int	lflag;
 int	nflag;
@@ -46,8 +46,8 @@ int	yflag;
 int	circf;
 long	tln;
 int	nsucc;
-char	*braslist[NBRA];
-char	*braelist[NBRA];
+char	*braslist[NBRA];	//contains pointers to the start of matched groups
+char	*braelist[NBRA];	//contains pointers to the end of matched groups
 char	bittab[] = {
 	1,
 	2,
@@ -59,11 +59,23 @@ char	bittab[] = {
 	128
 };
 
+/*
+
+errexit takes the string given to it and prints it to standard error and then
+exits the code with a status of 2, ending the program.
+
+*/
 void errexit(char *s, char *f){
 	fprintf(stderr, s, f);
 	exit(2);
 }
 
+/*
+
+The purpose of ecmp is to make sure that two sections of the line referencing 
+the same regex group have the same characters.
+
+*/
 int ecmp(char *a, char *b, int count){
 
 	register int cc = count;
@@ -72,6 +84,12 @@ int ecmp(char *a, char *b, int count){
 	return 1;
 }
 
+/*
+
+succeed takes in the name of the file currently being executed. It checks the
+flags and prints the output for grep based on the behavior the flag represents.
+
+*/
 int succeed(char *f){
 
 	long ftell();
@@ -96,7 +114,20 @@ int succeed(char *f){
 	printf("%s\n", linebuf);
 }
 
+/*
 
+advance takes two char pointers, lp and ep. lp is the pointer to the current
+line in the current index, and ep is a pointer to the expbuf. The format of lp
+is the raw text of the line, such as "the quick brown fox jumped over the lazy
+dog." The format of ep is of the output format refered to in the compile
+comment, with the special constants and their appropriate following characters,
+or lack thereof. 
+
+The advance routine calls itself for any portion of the regex that uses the
+special character '*'. Using the recursive calls ensures that 0 or more of
+whatever character is being matched is in the line.
+
+*/
 int advance(register char *lp, register char *ep) {
 
 	register char *curlp;
@@ -211,6 +242,27 @@ int advance(register char *lp, register char *ep) {
 	}
 }
 
+/*
+
+execute takes in a char pointer that contains a file name and, if file is not
+null, attempts to open the file read and set it to stdin, sending errexit if
+the open is unsucessful. The routine then reads in lines from stdin and sends
+the pointer to linebuf and a pointer to expbuf into the advance routine in an
+if statement. If advance returns true, the routine jumps to found and calls
+succeed if the vflag isn't raised. If the line doesn't match the expression,
+the routine jumps to nfound, which only calls succeed if vflag has been raised.
+
+execute can read in multiple files due to how it points to the expression and
+how the lines are read in. Everytime execute is called, a new pointer to expbuf
+is created and the each line read in overwrites the previous line in the
+linebuf, for lines in the same file and in different files.
+
+The arguments after the regex in argv are treated as file names when working
+with execute. If no file name is given, a null char pointer is passed in, which
+skips the freopen call. Instead, the command prompt waits for user input for 
+the stdin, requiring a EOF signal to end.
+
+*/
 int execute(char *file){
 
 	register char *p1, *p2;
@@ -286,6 +338,24 @@ int execute(char *file){
 	}
 }
 
+/*
+
+compile accepts a single, character pointer as input. The routine initializes a
+number of variables. Two pointers, ep and sp, are set to expbuf and astr. The
+expbuf array is the ultimate output of this routine, representing the fully
+processed regular expression. The input, astr, is the raw, user-generated regex
+that is fairly simple to read and write. The output, expbuf, on the other hand,
+is much different, containing many of the constants listed at the head of the
+file. Some examples of input and output of compile, each string delimited by a
+space representing an index:
+
+	input	1: c . . e
+	output	1: CCHR c CDOT CDOT CCHR e
+
+	input	2: \ ( c a s e \ )
+	output	2: CBRA 1 CCHR c CCHR a CCHR s CCHR e CKET 1
+
+*/
 int compile(char *astr){
 
 	register char c;
@@ -297,7 +367,6 @@ int compile(char *astr){
 	int closed;
 	char numbra;
 	char neg;
-	int warning = 1;
 
 	ep = expbuf;
 	sp = astr;
@@ -403,6 +472,59 @@ int compile(char *astr){
 	errexit("grep: RE error\n", (char *)NULL);
 }
 
+/*
+
+Runs through the command line arguments, incrementing flags until the e flag is
+found, an argument not beginning with the minus sign, or all arguments have
+been parsed. The flags function as follows:
+
+	-v     All lines but those matching are printed.
+
+	-c     Only a count of matching lines is printed.
+
+	-l     The names of files with matching lines are listed (once) separated by newlines.
+
+	-n     Each line is preceded by its line number in the file.
+
+	-b     Each line is preceded by the block number on which it was found.	This is sometimes
+	      useful in locating disk block numbers by context.
+
+	-s     No output is produced, only status.
+
+	-h     Do not print filename headers with output lines.
+
+	-y     Lower  case  letters in the pattern will also match upper case letters in the input
+
+	-e expression
+	Same as a simple expression argument, but useful when the expression begins with a -.
+
+Any other arguments beginning with a '-' and not being one of the flags listed
+above triggers the default case of the switch statement, sending a string to
+the errexit routine.
+
+Once exiting the switch statement, the routine ensures that there is an argv, 
+exiting with a status of 2 if there is not one.
+
+If the yflag has been incremented, the expression in argv is processed to make
+all lowercase characters not inside square brackets to also match uppercase
+characters. This is done by running through the expression in argv and building
+up the yflag version of the expression in ybuf. After each character is added
+to ybuf, the size of ybuf is checked to make sure it is not too large, calling
+errexit with a string stating that the argument was too large. Finally, ybuf is
+punctuated with a null terminator and setting the pointer of argv to ybuf.
+
+After the two if statements, the compile routine is called with argv as its
+only argument. Once the compile routine is complete, the number of files to
+run grep on is calculated.
+
+If there are no files, main checks if the lflag has been raised, exiting with a
+status of 1 if the lflag has been raised, then calling execute with a null
+char pointer as the argument. If there are files, the file names are sent into
+execute as arguments one at a time.
+
+Finally, main exits with a boolean expression of nsucc == 0.
+
+*/
 void main(int argc, char **argv){
 
 	while (--argc > 0 && (++argv)[0][0]=='-')
