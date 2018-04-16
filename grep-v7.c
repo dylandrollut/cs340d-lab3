@@ -10,6 +10,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <sys/param.h>
 
@@ -58,96 +59,222 @@ char	bittab[] = {
 	128
 };
 
-main(argc, argv)
-char **argv;
-{
-	while (--argc > 0 && (++argv)[0][0]=='-')
-		switch (argv[0][1]) {
-
-		case 'y':
-			yflag++;
-			continue;
-
-		case 'h':
-			hflag = 0;
-			continue;
-
-		case 's':
-			sflag++;
-			continue;
-
-		case 'v':
-			vflag++;
-			continue;
-
-		case 'b':
-			bflag++;
-			continue;
-
-		case 'l':
-			lflag++;
-			continue;
-
-		case 'c':
-			cflag++;
-			continue;
-
-		case 'n':
-			nflag++;
-			continue;
-
-		case 'e':
-			--argc;
-			++argv;
-			goto out;
-
-		default:
-			errexit("grep: unknown flag\n", (char *)NULL);
-			continue;
-		}
-out:
-	if (argc<=0)
-		exit(2);
-	if (yflag) {
-		register char *p, *s;
-		for (s = ybuf, p = *argv; *p; ) {
-			if (*p == '\\') {
-				*s++ = *p++;
-				if (*p)
-					*s++ = *p++;
-			} else if (*p == '[') {
-				while (*p != '\0' && *p != ']')
-					*s++ = *p++;
-			} else if (islower(*p)) {
-				*s++ = '[';
-				*s++ = toupper(*p);
-				*s++ = *p++;
-				*s++ = ']';
-			} else
-				*s++ = *p++;
-			if (s >= ybuf+ESIZE-5)
-				errexit("grep: argument too long\n", (char *)NULL);
-		}
-		*s = '\0';
-		*argv = ybuf;
-	}
-	compile(*argv);
-	nfile = --argc;
-	if (argc<=0) {
-		if (lflag)
-			exit(1);
-		execute((char *)NULL);
-	} else while (--argc >= 0) {
-		argv++;
-		execute(*argv);
-	}
-	exit(nsucc == 0);
+void errexit(char *s, char *f){
+	fprintf(stderr, s, f);
+	exit(2);
 }
 
-compile(astr)
-char *astr;
-{
-	register c;
+int ecmp(char *a, char *b, int count){
+
+	register int cc = count;
+	while(cc--)
+		if(*a++ != *b++)	return 0;
+	return 1;
+}
+
+int succeed(char *f){
+
+	long ftell();
+	nsucc = 1;
+	if (sflag)
+		return 0;
+	if (cflag) {
+		tln++;
+		return 0;
+	}
+	if (lflag) {
+		printf("%s\n", f);
+		fseek(stdin, 0l, 2);
+		return 0;
+	}
+	if (nfile > 1 && hflag)
+		printf("%s:", f);
+	if (bflag)
+		printf("%ld:", (ftell(stdin)-1)/LBSIZE);
+	if (nflag)
+		printf("%ld:", lnum);
+	printf("%s\n", linebuf);
+}
+
+
+int advance(register char *lp, register char *ep) {
+
+	register char *curlp;
+	char c;
+	char *bbeg;
+	int ct;
+
+	for (;;) switch (*ep++) {
+
+	case CCHR:
+		if (*ep++ == *lp++)
+			continue;
+		return 0;
+
+	case CDOT:
+		if (*lp++)
+			continue;
+		return 0;
+
+	case CDOL:
+		if (*lp==0)
+			continue;
+		return 0;
+
+	case CEOF:
+		return 1;
+
+	case CCL:
+		c = *lp++ & 0177;
+		if(ep[c>>3] & bittab[c & 07]) {
+			ep += 16;
+			continue;
+		}
+		return 0;
+	case CBRA:
+		braslist[*ep++] = lp;
+		continue;
+
+	case CKET:
+		braelist[*ep++] = lp;
+		continue;
+
+	case CBACK:
+		bbeg = braslist[*ep];
+		if (braelist[*ep]==0)
+			return 0;
+		ct = braelist[*ep++] - bbeg;
+		if(ecmp(bbeg, lp, ct)) {
+			lp += ct;
+			continue;
+		}
+		return 0;
+
+	case CBACK|STAR:
+		bbeg = braslist[*ep];
+		if (braelist[*ep]==0)
+			return 0;
+		ct = braelist[*ep++] - bbeg;
+		curlp = lp;
+		while(ecmp(bbeg, lp, ct))
+			lp += ct;
+		while(lp >= curlp) {
+			if(advance(lp, ep))	return 1;
+			lp -= ct;
+		}
+		return 0;
+
+
+	case CDOT|STAR:
+		curlp = lp;
+		while (*lp++);
+		goto star;
+
+	case CCHR|STAR:
+		curlp = lp;
+		while (*lp++ == *ep);
+		ep++;
+		goto star;
+
+	case CCL|STAR:
+		curlp = lp;
+		do {
+			c = *lp++ & 0177;
+		} while(ep[c>>3] & bittab[c & 07]);
+		ep += 16;
+		goto star;
+
+	star:
+		if(--lp == curlp) {
+			continue;
+		}
+
+		if(*ep == CCHR) {
+			c = ep[1];
+			do {
+				if(*lp != c)
+					continue;
+				if(advance(lp, ep))
+					return 1;
+			} while(lp-- > curlp);
+			return 0;
+		}
+
+		do {
+			if (advance(lp, ep))
+				return 1;
+		} while (lp-- > curlp);
+		return 0;
+
+	default:
+		errexit("grep RE botch\n", (char *)NULL);
+	}
+}
+
+int execute(char *file){
+
+	register char *p1, *p2;
+	register char c;
+
+	if (file) {
+		if (freopen(file, "r", stdin) == NULL)
+			errexit("grep: can't open %s\n", file);
+	}
+	lnum = 0;
+	tln = 0;
+	for (;;) {
+		lnum++;
+		p1 = linebuf;
+		while ((c = getchar()) != '\n') {
+			if (c == EOF) {
+				if (cflag) {
+					if (nfile>1)
+						printf("%s:", file);
+					printf("%li\n", tln);
+				}
+				return 0;
+			}
+			*p1++ = c;
+			if (p1 >= &linebuf[LBSIZE-1])
+				break;
+		}
+		*p1++ = '\0';
+		p1 = linebuf;
+		p2 = expbuf;
+		if (circf) {
+			if (advance(p1, p2))
+				goto found;
+			goto nfound;
+		}
+		/* fast check for first character */
+		if (*p2==CCHR) {
+			c = p2[1];
+			do {
+				if (*p1!=c)
+					continue;
+				if (advance(p1, p2))
+					goto found;
+			} while (*p1++);
+			goto nfound;
+		}
+		/* regular algorithm */
+		do {
+			if (advance(p1, p2))
+				goto found;
+		} while (*p1++);
+	nfound:
+		if (vflag)
+			succeed(file);
+		continue;
+	found:
+		if (vflag==0)
+			succeed(file);
+	}
+}
+
+int compile(char *astr){
+
+	register char c;
 	register char *ep, *sp;
 	char *cstart;
 	char *lastep;
@@ -175,7 +302,7 @@ char *astr;
 
 		case '\0':
 			*ep++ = CEOF;
-			return;
+			return -1;
 
 		case '.':
 			*ep++ = CDOT;
@@ -261,220 +388,87 @@ char *astr;
 	errexit("grep: RE error\n", (char *)NULL);
 }
 
-execute(file)
-char *file;
-{
-	register char *p1, *p2;
-	register c;
+void main(int argc, char **argv){
 
-	if (file) {
-		if (freopen(file, "r", stdin) == NULL)
-			errexit("grep: can't open %s\n", file);
+	while (--argc > 0 && (++argv)[0][0]=='-')
+		switch (argv[0][1]) {
+
+		case 'y':
+			yflag++;
+			continue;
+
+		case 'h':
+			hflag = 0;
+			continue;
+
+		case 's':
+			sflag++;
+			continue;
+
+		case 'v':
+			vflag++;
+			continue;
+
+		case 'b':
+			bflag++;
+			continue;
+
+		case 'l':
+			lflag++;
+			continue;
+
+		case 'c':
+			cflag++;
+			continue;
+
+		case 'n':
+			nflag++;
+			continue;
+
+		case 'e':
+			--argc;
+			++argv;
+			goto out;
+
+		default:
+			errexit("grep: unknown flag\n", (char *)NULL);
+			continue;
+		}
+out:
+	if (argc<=0)
+		exit(2);
+	if (yflag) {
+		register char *p, *s;
+		for (s = ybuf, p = *argv; *p; ) {
+			if (*p == '\\') {
+				*s++ = *p++;
+				if (*p)
+					*s++ = *p++;
+			} else if (*p == '[') {
+				while (*p != '\0' && *p != ']')
+					*s++ = *p++;
+			} else if (islower(*p)) {
+				*s++ = '[';
+				*s++ = toupper(*p);
+				*s++ = *p++;
+				*s++ = ']';
+			} else
+				*s++ = *p++;
+			if (s >= ybuf+ESIZE-5)
+				errexit("grep: argument too long\n", (char *)NULL);
+		}
+		*s = '\0';
+		*argv = ybuf;
 	}
-	lnum = 0;
-	tln = 0;
-	for (;;) {
-		lnum++;
-		p1 = linebuf;
-		while ((c = getchar()) != '\n') {
-			if (c == EOF) {
-				if (cflag) {
-					if (nfile>1)
-						printf("%s:", file);
-					printf("%D\n", tln);
-				}
-				return;
-			}
-			*p1++ = c;
-			if (p1 >= &linebuf[LBSIZE-1])
-				break;
-		}
-		*p1++ = '\0';
-		p1 = linebuf;
-		p2 = expbuf;
-		if (circf) {
-			if (advance(p1, p2))
-				goto found;
-			goto nfound;
-		}
-		/* fast check for first character */
-		if (*p2==CCHR) {
-			c = p2[1];
-			do {
-				if (*p1!=c)
-					continue;
-				if (advance(p1, p2))
-					goto found;
-			} while (*p1++);
-			goto nfound;
-		}
-		/* regular algorithm */
-		do {
-			if (advance(p1, p2))
-				goto found;
-		} while (*p1++);
-	nfound:
-		if (vflag)
-			succeed(file);
-		continue;
-	found:
-		if (vflag==0)
-			succeed(file);
+	compile(*argv);
+	nfile = --argc;
+	if (argc<=0) {
+		if (lflag)
+			exit(1);
+		execute((char *)NULL);
+	} else while (--argc >= 0) {
+		argv++;
+		execute(*argv);
 	}
-}
-
-advance(lp, ep)
-register char *lp, *ep;
-{
-	register char *curlp;
-	char c;
-	char *bbeg;
-	int ct;
-
-	for (;;) switch (*ep++) {
-
-	case CCHR:
-		if (*ep++ == *lp++)
-			continue;
-		return(0);
-
-	case CDOT:
-		if (*lp++)
-			continue;
-		return(0);
-
-	case CDOL:
-		if (*lp==0)
-			continue;
-		return(0);
-
-	case CEOF:
-		return(1);
-
-	case CCL:
-		c = *lp++ & 0177;
-		if(ep[c>>3] & bittab[c & 07]) {
-			ep += 16;
-			continue;
-		}
-		return(0);
-	case CBRA:
-		braslist[*ep++] = lp;
-		continue;
-
-	case CKET:
-		braelist[*ep++] = lp;
-		continue;
-
-	case CBACK:
-		bbeg = braslist[*ep];
-		if (braelist[*ep]==0)
-			return(0);
-		ct = braelist[*ep++] - bbeg;
-		if(ecmp(bbeg, lp, ct)) {
-			lp += ct;
-			continue;
-		}
-		return(0);
-
-	case CBACK|STAR:
-		bbeg = braslist[*ep];
-		if (braelist[*ep]==0)
-			return(0);
-		ct = braelist[*ep++] - bbeg;
-		curlp = lp;
-		while(ecmp(bbeg, lp, ct))
-			lp += ct;
-		while(lp >= curlp) {
-			if(advance(lp, ep))	return(1);
-			lp -= ct;
-		}
-		return(0);
-
-
-	case CDOT|STAR:
-		curlp = lp;
-		while (*lp++);
-		goto star;
-
-	case CCHR|STAR:
-		curlp = lp;
-		while (*lp++ == *ep);
-		ep++;
-		goto star;
-
-	case CCL|STAR:
-		curlp = lp;
-		do {
-			c = *lp++ & 0177;
-		} while(ep[c>>3] & bittab[c & 07]);
-		ep += 16;
-		goto star;
-
-	star:
-		if(--lp == curlp) {
-			continue;
-		}
-
-		if(*ep == CCHR) {
-			c = ep[1];
-			do {
-				if(*lp != c)
-					continue;
-				if(advance(lp, ep))
-					return(1);
-			} while(lp-- > curlp);
-			return(0);
-		}
-
-		do {
-			if (advance(lp, ep))
-				return(1);
-		} while (lp-- > curlp);
-		return(0);
-
-	default:
-		errexit("grep RE botch\n", (char *)NULL);
-	}
-}
-
-succeed(f)
-char *f;
-{
-	long ftell();
-	nsucc = 1;
-	if (sflag)
-		return;
-	if (cflag) {
-		tln++;
-		return;
-	}
-	if (lflag) {
-		printf("%s\n", f);
-		fseek(stdin, 0l, 2);
-		return;
-	}
-	if (nfile > 1 && hflag)
-		printf("%s:", f);
-	if (bflag)
-		printf("%ld:", (ftell(stdin)-1)/BSIZE);
-	if (nflag)
-		printf("%ld:", lnum);
-	printf("%s\n", linebuf);
-}
-
-ecmp(a, b, count)
-char	*a, *b;
-{
-	register cc = count;
-	while(cc--)
-		if(*a++ != *b++)	return(0);
-	return(1);
-}
-
-errexit(s, f)
-char *s, *f;
-{
-	fprintf(stderr, s, f);
-	exit(2);
+	exit(nsucc == 0);
 }
