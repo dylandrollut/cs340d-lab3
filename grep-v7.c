@@ -448,12 +448,19 @@ int compile(char *astr){
 		case '*':
 			if (lastep==0 || *lastep==CBRA || *lastep==CKET)
 				goto defchar;
+			if(*lastep&PLUS){
+				errexit("grep: invalid target for quantifier '*'.\n", (char *)NULL);
+			}
 			*lastep |= STAR;
 			continue;
+			
 
 		case '+':
 			if (lastep==0 || *lastep==CBRA || *lastep==CKET)
 				goto defchar;
+			if(*lastep&STAR){
+				errexit("grep: invalid target for quantifier '+'.\n", (char *)NULL);
+			}
 			*lastep |= PLUS;
 			continue;
 
