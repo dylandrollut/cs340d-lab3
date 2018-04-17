@@ -11,7 +11,6 @@
 
 /*
 TODO:
-	add '+' support for regex
 	update man page
 
 */
@@ -21,17 +20,17 @@ TODO:
 #include <ctype.h>
 #include <sys/param.h>
 
-#define	CBRA	1	//signals the start of a grouping in the expression
-#define	CCHR	2	//signals a regular, non-special char in the expression
-#define	CDOT	4	//stands for any character in the expression
-#define	CCL	6	//signals an open square bracket in the expression
-#define	NCCL	8	//not used anywhere else in the code
-#define	CDOL	10	//stands for the special character '$'
-#define	CEOF	11	//signals the end of the expression
-#define	CKET	12	//signals the end of a grouping in the expression
-#define	CBACK	18	//signals the reference of a previous grouping
+#define	CBRA	2	//signals the start of a grouping in the expression
+#define	CCHR	4	//signals a regular, non-special char in the expression
+#define	CDOT	8	//stands for any character in the expression
+#define	CCL	12	//signals an open square bracket in the expression
+#define	CDOL	20	//stands for the special character '$'
+#define	CEOF	22	//signals the end of the expression
+#define	CKET	24	//signals the end of a grouping in the expression
+#define	CBACK	36	//signals the reference of a previous grouping
 
 #define	STAR	01	//stands for the special character '*'
+#define PLUS	02	//stands for the special character '+'
 
 #define	LBSIZE	16384	//max size of a line
 #define	ESIZE	8192	//max size of a regex expression
@@ -202,6 +201,22 @@ int advance(register char *lp, register char *ep) {
 		}
 		return 0;
 
+	case CBACK|PLUS:
+		bbeg = braslist[*ep];
+		if (braelist[*ep]==0)
+			return 0;
+		ct = braelist[*ep++] - bbeg;
+		if(ecmp(bbeg, lp, ct)) {
+			lp += ct;
+			while(ecmp(bbeg, lp, ct))
+			lp += ct;
+			while(lp >= curlp) {
+				if(advance(lp, ep))	return 1;
+				lp -= ct;
+			}
+			return 0;
+		}
+		return 0;
 
 	case CDOT|STAR:
 		curlp = lp;
@@ -221,6 +236,36 @@ int advance(register char *lp, register char *ep) {
 		} while(ep[c>>3] & bittab[c & 07]);
 		ep += 16;
 		goto star;
+
+	case CDOT|PLUS:
+		if (*lp++){
+			curlp = lp;
+			while (*lp++);
+			goto star;
+		}
+		return 0;
+
+	case CCHR|PLUS:
+		if (*ep++ == *lp++){
+			curlp = lp;
+			ep--;
+			while (*lp++ == *ep);
+			ep++;
+			goto star;
+		}
+		return 0;
+
+	case CCL|PLUS:
+		c = *lp++ & 0177;
+		if(ep[c>>3] & bittab[c & 07]) {
+			curlp = lp;
+			do {
+				c = *lp++ & 0177;
+			} while(ep[c>>3] & bittab[c & 07]);
+			ep += 16;
+			goto star;
+		}
+		return 0;
 
 	star:
 		if(--lp == curlp) {
@@ -387,7 +432,8 @@ int compile(char *astr){
 	for (;;) {
 		if (ep >= &expbuf[ESIZE])
 			goto cerror;
-		if ((c = *sp++) != '*')
+		c = *sp++;
+		if (c != '*' && c!= '+')
 			lastep = ep;
 		switch (c) {
 
@@ -403,6 +449,12 @@ int compile(char *astr){
 			if (lastep==0 || *lastep==CBRA || *lastep==CKET)
 				goto defchar;
 			*lastep |= STAR;
+			continue;
+
+		case '+':
+			if (lastep==0 || *lastep==CBRA || *lastep==CKET)
+				goto defchar;
+			*lastep |= PLUS;
 			continue;
 
 		case '$':
