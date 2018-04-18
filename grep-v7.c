@@ -65,6 +65,8 @@ char	bittab[] = {
 	128
 };
 
+
+
 /*
 
 errexit takes the string given to it and prints it to standard error and then
@@ -193,8 +195,11 @@ int advance(register char *lp, register char *ep) {
 			return 0;
 		ct = braelist[*ep++] - bbeg;
 		curlp = lp;
-		while(ecmp(bbeg, lp, ct))
+		while(ecmp(bbeg, lp, ct)){
+			if(ct == 0)
+				ct = 1;
 			lp += ct;
+		}
 		while(lp >= curlp) {
 			if(advance(lp, ep))	return 1;
 			lp -= ct;
@@ -208,8 +213,12 @@ int advance(register char *lp, register char *ep) {
 		ct = braelist[*ep++] - bbeg;
 		if(ecmp(bbeg, lp, ct)) {
 			lp += ct;
-			while(ecmp(bbeg, lp, ct))
-			lp += ct;
+			curlp = lp;
+			while(ecmp(bbeg, lp, ct)){
+				if(ct == 0)
+					ct = 1;
+				lp += ct;
+			}
 			while(lp >= curlp) {
 				if(advance(lp, ep))	return 1;
 				lp -= ct;
@@ -350,7 +359,7 @@ int execute(char *file){
 		linesize++;
 
 		if(linesize > 512){
-			printf("grep: input line %d larger than 512 bytes. May miss potential matches.\n", lnum);
+			printf("grep: input line %li larger than 512 bytes. May miss potential matches.\n", lnum);
 		}
 
 		p1 = linebuf;
@@ -360,6 +369,7 @@ int execute(char *file){
 				goto found;
 			goto nfound;
 		}
+
 		/* fast check for first character */
 		if (*p2==CCHR) {
 			c = p2[1];
@@ -371,17 +381,20 @@ int execute(char *file){
 			} while (*p1++);
 			goto nfound;
 		}
+
 		/* regular algorithm */
 		do {
 			if (advance(p1, p2))
 				goto found;
 		} while (*p1++);
 	nfound:
+
 		if (vflag){
 			succeed(file);
 		}
 		continue;
 	found:
+
 		if (vflag==0){
 			succeed(file);
 		}
