@@ -1,21 +1,12 @@
 .\" UNIX V7 source code: see /COPYRIGHT or www.tuhs.org for details.
 .TH GREP 1 
 .SH NAME
-grep, egrep, fgrep \- search a file for a pattern
+grep \- search a file for a pattern
 .SH SYNOPSIS
 .B grep
 [ option ] ...
 expression [ file ] ...
 .LP
-.B egrep 
-[ option ] ...
-[ expression ]
-[ file ] ...
-.PP
-.B fgrep
-[ option ] ...
-[ strings ]
-[ file ]
 .SH DESCRIPTION
 Commands of the
 .I grep
@@ -35,12 +26,6 @@ the file name is shown if there is more than one input file.
 patterns are limited regular expressions in the style of
 .IR ed (1);
 it uses a compact nondeterministic algorithm.
-.I Egrep
-patterns are full regular expressions;
-it uses a fast deterministic algorithm that
-sometimes needs exponential space.
-.I Fgrep
-patterns are fixed strings; it is fast and compact.
 .PP
 The following options are recognized.
 .TP
@@ -73,9 +58,7 @@ Do not print filename headers with output lines.
 .TP
 .B \-y
 Lower case letters in the pattern will also match
-upper case letters in the input
-.RI ( grep
-only).
+upper case letters in the input.
 .TP
 .BI \-e " expression"
 Same as a simple
@@ -84,19 +67,6 @@ argument,
 but useful when the
 .I expression
 begins with a \-.
-.TP
-.BI \-f " file"
-The regular expression
-.RI ( egrep )
-or string list
-.RI ( fgrep ) 
-is taken from the
-.I file.
-.TP
-.B \-x
-(Exact) only lines matched in their entirety are printed
-.RI ( fgrep
-only).
 .PP
 Care should be taken when
 using the characters
@@ -109,12 +79,10 @@ entire
 .I expression
 argument in single quotes \' \'.
 .PP
-.I Fgrep
-searches for lines that contain one of the (newline-separated)
-.I strings.
-.PP
-.I Egrep
-accepts extended regular expressions.
+.I Grep
+accepts regular expressions.
+The regular expressions may be 8192 characters in length
+and will be run on lines pulled from files up to 16384 characters in length.
 In the following description `character' excludes
 newline:
 .IP
@@ -139,26 +107,44 @@ A ]
 may occur only as the first character of the string.
 A literal \- must be placed where it can't be
 mistaken as a range indicator.
+Furthermore, if the first character in the brackets is a ^, all character
+not listed in the brackets will be matched.
 .IP
-A regular expression followed by * (+, ?) matches a sequence
-of 0 or more (1 or more, 0 or 1)
+A regular expression followed by * matches a sequence
+of 0 or more
 matches of the regular expression.
+.PP
+.RS
+.RS
+For example, the expression ab*c matches lines that contain
+the strings ac, abc, and abbbbbbbbc.
+.RE
+.RE
 .IP
-Two regular expressions concatenated
-match a match of the first followed by a match of 
-the second.
+A regular expression followed by + matches a sequence
+of 1 or more
+matches of the regular expression.
+.PP
+.RS
+.RS
+For example, the expression ab+c matches lines that contain
+the strings abc and abbbbbbbbc, but not ac
+.RE
+.RE
 .IP
-Two regular expressions separated by | or newline
-match either a match for the first or a match for the
-second.
 .IP
 A regular expression enclosed in parentheses
 matches a match for the regular expression.
+Futhermore, the expression in parentheses may be referenced
+again by a \e followed by a number 1-9.
+The number to use after the backslash can be determined by the placement
+of the expression being referenced in left to right order of all
+expressions in parentheses.
 .LP
 The order of precedence of operators
 at the same parenthesis level
 is [\|] then
-*+? then concatenation then | and newline.
+*+ then newline.
 .SH "SEE ALSO"
 ed(1),
 sed(1),

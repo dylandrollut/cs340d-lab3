@@ -349,6 +349,10 @@ int execute(char *file){
 		*p1++ = '\0';
 		linesize++;
 
+		if(linesize > 512){
+			printf("grep: input line %d larger than 512 bytes. May miss potential matches.\n", lnum);
+		}
+
 		p1 = linebuf;
 		p2 = expbuf;
 		if (circf) {
@@ -374,17 +378,11 @@ int execute(char *file){
 		} while (*p1++);
 	nfound:
 		if (vflag){
-			if(linesize > 512){
-				printf("grep: input line larger than 512 bytes. May miss potential matches.\n");
-			}
 			succeed(file);
 		}
 		continue;
 	found:
 		if (vflag==0){
-			if(linesize > 512){
-				printf("grep: input line larger than 512 bytes. May miss potential matches.\n");
-			}
 			succeed(file);
 		}
 	}
